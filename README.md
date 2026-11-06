@@ -21,6 +21,11 @@ Each content segment is introduced by a title card with the current
 time ("3:28 PM - Joke:") when a clock subject is enabled, and a
 quick "wow" sweep follows each segment (both configurable).
 
+**Night mode** mirrors the LiveSectional maps: during a configured
+window (default 22:00–06:00) the sign scales to a percentage of its
+normal brightness (default 25%). At 0% the sign goes dark while the
+app, admin page, and fetches keep running.
+
 Everything is set from the board's own web admin page — subjects,
 airports, symbols, ZIP, brightness, scroll speed — no reflashing to
 change settings.

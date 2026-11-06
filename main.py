@@ -12,6 +12,11 @@
 # never touched by updates. (v3 was the same code as v2 plus the
 # provisioning join-race fix, renamed for delivery.)
 #
+# v5 (Nov 6 2026): night mode, mirroring the LS Lite maps - during
+# the configured window the sign scales to night_brightness percent
+# of the normal intensity; at 0% the sign goes dark while the app,
+# admin page and fetches keep running.
+#
 # What v2 adds (Mark's tweaks, Nov 6 2026):
 # - Title cards: when a clock subject is enabled, every content
 #   segment is preceded by a static card "3:28 PM - Joke:" naming
@@ -114,6 +119,10 @@ DEFAULTS = {
     "scroll_ms": 40,                # ms per one-column scroll step
     "wipe": "random",               # random|left|right|curtain|dissolve|cut
     "wow_wipe": True,               # quick wow sweep after each segment
+    "night_mode": True,             # dim (or darken) during the window
+    "night_start": "22:00",         # HH:MM local
+    "night_end": "06:00",           # HH:MM local; window may wrap midnight
+    "night_brightness": 25,         # percent of normal intensity; 0 = dark
     "metar_ids": ["KFLG"],          # up to 12 ICAO station ids
     "metar_mode": "translated",     # translated | raw
     "stocks": ["AAPL", "GOOGL"],    # up to 12 ticker symbols
@@ -227,6 +236,64 @@ def network_service():
 wifi_connect()
 
 # ---------------------------------------------------------------- display
+
+def _hhmm_mins(s):
+    """'22:00' -> 1320, or None if the string isn't HH:MM."""
+    try:
+        hh, mm = str(s).split(":")
+        hh, mm = int(hh), int(mm)
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return hh * 60 + mm
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def night_active():
+    """True inside the configured night window (which may wrap
+    past midnight). A malformed or zero-length window is never
+    active."""
+    if not cfg.get("night_mode"):
+        return False
+    start = _hhmm_mins(cfg.get("night_start"))
+    end = _hhmm_mins(cfg.get("night_end"))
+    if start is None or end is None or start == end:
+        return False
+    h, m, _s = local_hms()
+    cur = h * 60 + m
+    if start < end:
+        return start <= cur < end
+    return cur >= start or cur < end
+
+
+def night_off():
+    """Night window with night_brightness at 0: the sign goes dark
+    (MAX7219 intensity 0 is still faintly lit, so dark means blank,
+    not merely dim)."""
+    return night_active() and int(cfg.get("night_brightness", 25)) <= 0
+
+
+def effective_intensity():
+    """The intensity to run right now: the configured brightness,
+    scaled to night_brightness percent inside the night window."""
+    base = int(cfg["brightness"])
+    if night_active():
+        pct = int(cfg.get("night_brightness", 25))
+        return max(0, min(15, (base * pct + 50) // 100))
+    return base
+
+
+def blank_rest(hold_ms=5000):
+    """Keep the sign dark while the loop keeps servicing - the
+    night-off stand-in for a segment: watchdog fed, admin page and
+    network alive, fetches still happening between segments."""
+    disp.fb.fill(0)
+    disp.show()
+    t0 = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), t0) < hold_ms:
+        service()
+        time.sleep_ms(50)
+
 
 def scroll_text(text):
     """Scroll text right-to-left across the sign, demo-style."""
@@ -790,6 +857,7 @@ def _admin_page(msg=""):
         sel = " selected" if cfg["news_feed"] == key else ""
         feed_opts += '<option value="%s"%s>%s</option>' % (key, sel, label)
     wow_checked = " checked" if cfg.get("wow_wipe") else ""
+    night_checked = " checked" if cfg.get("night_mode") else ""
     if UPDATE_STATE["failed"]:
         update_html = ('<p style="color:#b00">%s</p>'
                        % _esc(UPDATE_STATE["failed"]))
@@ -844,6 +912,11 @@ def _admin_page(msg=""):
 <label>Scroll speed - ms per step (lower = faster) <input type="number" name="scroll_ms" min="1" max="120" value="%d"></label><br><br>
 <label>Wipe between subjects <select name="wipe">%s</select></label><br><br>
 <label style="display:block"><input type="checkbox" name="wow_wipe"%s> Wow wipe after each segment (replaces the wipe above while on)</label>
+<h3>Night mode</h3>
+<label style="display:block"><input type="checkbox" name="night_mode"%s> Night mode - dim during the window below</label><br>
+<label>From <input type="text" name="night_start" value="%s" size="5" maxlength="5"></label>
+<label> to <input type="text" name="night_end" value="%s" size="5" maxlength="5"></label>
+<label> at <input type="number" name="night_brightness" min="0" max="100" value="%d"> %% of normal brightness (0 = sign dark)</label>
 <h3>WiFi &amp; time</h3>
 <label>SSID <input type="text" name="wifi_ssid" value="%s"></label><br><br>
 <label>Password <input type="password" name="wifi_pass" value="%s"></label><br><br>
@@ -857,6 +930,8 @@ def _admin_page(msg=""):
         cfg["zip_code"], feed_opts, cfg["news_custom_url"],
         int(cfg["brightness"]), int(cfg["scroll_ms"]), wipe_opts,
         wow_checked,
+        night_checked, cfg["night_start"], cfg["night_end"],
+        int(cfg["night_brightness"]),
         cfg["wifi_ssid"], cfg["wifi_pass"], int(cfg["tz_offset_hours"]))
 
 
@@ -910,6 +985,8 @@ def _handle_client(conn):
                 "news_feed": cfg["news_feed"],
                 "news_ok": news_mod.last_fetch_ok(),
                 "wow_wipe": bool(cfg.get("wow_wipe")),
+                "night_mode": bool(cfg.get("night_mode")),
+                "night_active": night_active(),
                 "update_available": UPDATE_STATE["available"],
                 "update_files": UPDATE_STATE["files"],
                 "update_failed": UPDATE_STATE["failed"]})
@@ -950,6 +1027,15 @@ def _handle_client(conn):
             cfg["news_custom_url"] = params.get(
                 "news_custom_url", cfg["news_custom_url"]).strip()
             cfg["wow_wipe"] = "wow_wipe" in params
+            cfg["night_mode"] = "night_mode" in params
+            for key in ("night_start", "night_end"):
+                if _hhmm_mins(params.get(key, "")) is not None:
+                    cfg[key] = params[key].strip()
+            try:
+                cfg["night_brightness"] = max(
+                    0, min(100, int(params.get("night_brightness", 25))))
+            except ValueError:
+                pass
             cfg["wifi_ssid"] = params.get("wifi_ssid", cfg["wifi_ssid"])
             cfg["wifi_pass"] = params.get("wifi_pass", cfg["wifi_pass"])
             save_config(cfg)
@@ -1514,7 +1600,7 @@ def show_ip_splash(timeout_ms=20000):
 
 def main():
     global _wdt
-    print("Ticker app starting (S3 build v2: clock + METAR + stocks + verse + joke + alerts + news, provisioning)")
+    print("Ticker app starting (S3 build v5: clock + METAR + stocks + verse + joke + alerts + news, provisioning, self-update, night mode)")
     _wdt = WDT(timeout=60000)
     print("Watchdog armed (60 s)")
     try:
@@ -1525,14 +1611,18 @@ def main():
     show_ip_splash()
     try:
         while True:
-            if cfg["brightness"] != disp.intensity:
-                disp.set_intensity(cfg["brightness"])
             data_service()
             segs = build_segments()
             print("Cycle:", len(segs), "segments")
             subs = cfg["subjects"]
             clock_on = subs.get("clock_normal") or subs.get("clock_text")
             for kind, payload, title in segs:
+                if night_off():
+                    blank_rest()
+                    continue
+                eff = effective_intensity()
+                if eff != disp.intensity:
+                    disp.set_intensity(eff)
                 if title and clock_on:
                     h, m, _s = local_hms()
                     static_text("%s - %s:" % (

@@ -26,5 +26,9 @@
   "joke": true,
   "alerts": true,
   "news": true
- }
+ },
+ "night_mode": true,
+ "night_start": "22:00",
+ "night_end": "06:00",
+ "night_brightness": 25
 }

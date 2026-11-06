@@ -562,6 +562,47 @@ check("upd: bad SHA -> no swap, failure recorded",
       and "verification failed" in ns["UPDATE_STATE"]["failed"],
       ns["UPDATE_STATE"])
 
+# 12. night mode (v5): window math (incl. wrap past midnight),
+# intensity scaling, and the dark-at-0% state
+check("night: HH:MM parse",
+      ns["_hhmm_mins"]("22:00") == 1320
+      and ns["_hhmm_mins"]("6:05") == 365
+      and ns["_hhmm_mins"]("24:00") is None
+      and ns["_hhmm_mins"]("abc") is None)
+_real_hms = ns["local_hms"]
+cfg["night_mode"] = True
+cfg["night_start"] = "22:00"
+cfg["night_end"] = "06:00"
+cfg["night_brightness"] = 25
+cfg["brightness"] = 6
+for hh, mm, want in ((21, 59, False), (22, 0, True), (23, 30, True),
+                     (0, 0, True), (5, 59, True), (6, 0, False),
+                     (12, 0, False)):
+    ns["local_hms"] = lambda h=hh, m=mm: (h, m, 0)
+    check("night: wrap window at %02d:%02d" % (hh, mm),
+          ns["night_active"]() is want)
+ns["local_hms"] = lambda: (23, 0, 0)
+check("night: 25% of 6 -> 2", ns["effective_intensity"]() == 2,
+      ns["effective_intensity"]())
+check("night: not off at 25%", ns["night_off"]() is False)
+cfg["night_brightness"] = 0
+check("night: 0% -> off in window", ns["night_off"]() is True)
+ns["local_hms"] = lambda: (12, 0, 0)
+check("night: midday not off", ns["night_off"]() is False)
+check("night: midday full intensity",
+      ns["effective_intensity"]() == 6)
+cfg["night_mode"] = False
+ns["local_hms"] = lambda: (23, 0, 0)
+check("night: disabled never active", ns["night_active"]() is False)
+cfg["night_mode"] = True
+cfg["night_brightness"] = 25
+ns["local_hms"] = _real_hms
+page = ns["_admin_page"]()
+check("admin: night fields",
+      'name="night_mode"' in page and 'name="night_start"' in page
+      and 'name="night_end"' in page
+      and 'name="night_brightness"' in page)
+
 print()
 if failures:
     print("FAILURES:", failures)
