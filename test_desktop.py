@@ -185,6 +185,10 @@ YAHOO = {"chart": {"result": [{"meta": {"symbol": "AAPL",
 JOKE = {"id": "abc123",
         "joke": "Why did the coffee file a police report? It got mugged.",
         "status": 200}
+ZENQUOTES = [{"q": "Stay hungry, stay foolish.", "a": "Stewart Brand",
+              "h": "<blockquote>ignored</blockquote>"}]
+DUMMYQ = {"id": 7, "quote": "Simplicity is the soul of efficiency.",
+          "author": "Austin Freeman"}
 # Live zippopotam.us reply for 86001, read Nov 6 2026.
 ZIPPOPOTAM = {"country": "United States", "post code": "86001",
               "places": [{"place name": "Flagstaff",
@@ -236,6 +240,10 @@ def _fake_get(url, headers=None):
         return _Resp(js=YAHOO)
     if "icanhazdadjoke" in url:
         return _Resp(js=JOKE)
+    if "zenquotes" in url:
+        return _Resp(js=ZENQUOTES)
+    if "dummyjson" in url:
+        return _Resp(js=DUMMYQ)
     if "zippopotam" in url:
         return _Resp(js=ZIPPOPOTAM)
     if "arcgis" in url:
@@ -254,6 +262,7 @@ sys.modules["urequests"] = requests
 import nws
 import news
 import zipgeo
+import quotes
 
 failures = []
 
@@ -343,9 +352,9 @@ check("app: subjects merged (joke off, alerts/news default on)",
 segs = ns["build_segments"]()
 check("app: segments are triples", all(len(s) == 3 for s in segs), segs)
 by_title = {s[2]: s[1] for s in segs if s[2]}
-check("app: titles for metar/stocks/verse/alerts/news",
-      set(by_title) == {"Weather", "Stocks", "Verse", "Wx Alert",
-                        "News"}, list(by_title))
+check("app: titles for metar/stocks/verse/quote/alerts/news",
+      set(by_title) == {"Weather", "Stocks", "Verse", "Quote",
+                        "Wx Alert", "News"}, list(by_title))
 check("app: clocks have no title",
       all(s[2] is None for s in segs if s[0] == "static"))
 check("app: alerts segment carries details",
@@ -602,6 +611,32 @@ check("admin: night fields",
       'name="night_mode"' in page and 'name="night_start"' in page
       and 'name="night_end"' in page
       and 'name="night_brightness"' in page)
+
+# 13. inspirational quotes (v6): both source shapes parse, the
+# live fetch caches, and the offline fallback rotates
+check("quotes: zenquotes shape",
+      quotes._parse(ZENQUOTES) == ("Stay hungry, stay foolish.",
+                                   "Stewart Brand"))
+check("quotes: dummyjson shape",
+      quotes._parse(DUMMYQ) == ("Simplicity is the soul of "
+                                "efficiency.", "Austin Freeman"))
+check("quotes: junk -> None",
+      quotes._parse({"nope": 1}) is None
+      and quotes._parse("text") is None)
+check("quotes: curly quotes folded to ASCII",
+      quotes._parse([{"q": "\u201cDo it.\u201d", "a": "Anon"}])[0]
+      == '"Do it."')
+check("quotes: data_service fetched a quote",
+      quotes.last_fetch_ok() is True)
+check("quotes: segment is the live quote",
+      quotes.segment() == "Stay hungry, stay foolish. - Stewart Brand",
+      quotes.segment())
+quotes._cache = None
+seg = quotes.segment()
+check("quotes: fallback segment has an author",
+      " - " in seg and len(seg) > 20, seg)
+check("quotes: quotes.py rides the self-update",
+      "quotes.py" in ns["UPDATE_FILES"])
 
 print()
 if failures:

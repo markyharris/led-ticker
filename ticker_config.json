@@ -25,7 +25,8 @@
   "verse": true,
   "joke": true,
   "alerts": true,
-  "news": true
+  "news": true,
+  "quote": true
  },
  "night_mode": true,
  "night_start": "22:00",

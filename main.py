@@ -17,6 +17,11 @@
 # of the normal intensity; at 0% the sign goes dark while the app,
 # admin page and fetches keep running.
 #
+# v6 (Nov 6 2026): inspirational-quote segment (quotes.py) - one
+# quote per refresh from zenquotes.io with dummyjson.com behind
+# it, last-good cached, bundled public-domain fallbacks offline.
+# Mark's one design note: quotes come from an API, not from him.
+#
 # What v2 adds (Mark's tweaks, Nov 6 2026):
 # - Title cards: when a clock subject is enabled, every content
 #   segment is preceded by a static card "3:28 PM - Joke:" naming
@@ -96,6 +101,7 @@ import metar as metar_mod
 import stocks as stocks_mod
 import verse as verse_mod
 import joke as joke_mod
+import quotes as quotes_mod
 import nws as nws_mod
 import news as news_mod
 import zipgeo
@@ -136,6 +142,7 @@ DEFAULTS = {
         "stocks": True,
         "verse": True,
         "joke": True,
+        "quote": True,
         "alerts": True,
         "news": True,
     },
@@ -148,6 +155,7 @@ SUBJECT_LABELS = [
     ("stocks", "Stocks - up to 12 symbols"),
     ("verse", "Bible verse - New Testament (KJV, on-board)"),
     ("joke", "Dad joke - icanhazdadjoke.com"),
+    ("quote", "Inspirational quote - zenquotes.io"),
     ("alerts", "Weather alerts - NWS, for the ZIP below"),
     ("news", "News headlines - wire RSS feed"),
 ]
@@ -159,6 +167,7 @@ SEGMENT_TITLES = {
     "stocks": "Stocks",
     "verse": "Verse",
     "joke": "Joke",
+    "quote": "Quote",
     "alerts": "Wx Alert",
     "news": "News",
 }
@@ -875,7 +884,7 @@ def _admin_page(msg=""):
     h, m, _s = local_hms()
     status = ("IP: %s &nbsp; Time: %s (%s) &nbsp; NTP: %s &nbsp; "
               "METAR: %s &nbsp; Stocks: %s &nbsp; Joke: %s &nbsp; "
-              "Alerts: %s &nbsp; News: %s") % (
+              "Quote: %s &nbsp; Alerts: %s &nbsp; News: %s") % (
         _ip or "not connected",
         textclock.normal_time(h, m),
         textclock.text_time(h, m),
@@ -883,6 +892,7 @@ def _admin_page(msg=""):
         "ok" if metar_mod.last_fetch_ok() else "waiting",
         "ok" if stocks_mod.last_fetch_ok() else "waiting",
         "ok" if joke_mod.last_fetch_ok() else "waiting",
+        "ok" if quotes_mod.last_fetch_ok() else "waiting",
         "ok" if nws_mod.last_fetch_ok() else "waiting",
         "ok" if news_mod.last_fetch_ok() else "waiting")
     return """<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -979,6 +989,7 @@ def _handle_client(conn):
                 "stocks": cfg["stocks"],
                 "stocks_ok": stocks_mod.last_fetch_ok(),
                 "joke_ok": joke_mod.last_fetch_ok(),
+                "quote_ok": quotes_mod.last_fetch_ok(),
                 "zip_code": cfg["zip_code"],
                 "alerts_ok": nws_mod.last_fetch_ok(),
                 "alerts_active": nws_mod.segment() is not None,
@@ -1101,8 +1112,8 @@ def web_service():
 # never in the list - it belongs to the board, not the repo.
 GITHUB_REPO = "markyharris/led-ticker"
 UPDATE_FILES = ("main.py", "max7219.py", "textclock.py", "metar.py",
-                "stocks.py", "verse.py", "joke.py", "nws.py",
-                "news.py", "zipgeo.py")
+                "stocks.py", "verse.py", "joke.py", "quotes.py",
+                "nws.py", "news.py", "zipgeo.py")
 UPDATE_CHECK_MS = 3600 * 1000
 UPDATE_TIMEOUT_S = 20
 MAX_API_BYTES = 32768
@@ -1406,11 +1417,13 @@ def _apply_update():
 METAR_REFRESH_MS = 10 * 60 * 1000
 STOCKS_REFRESH_MS = 10 * 60 * 1000
 JOKE_REFRESH_MS = 30 * 60 * 1000
+QUOTE_REFRESH_MS = 30 * 60 * 1000
 ALERTS_REFRESH_MS = 10 * 60 * 1000
 NEWS_REFRESH_MS = 30 * 60 * 1000
 _last_metar_fetch = None
 _last_stocks_fetch = None
 _last_joke_fetch = None
+_last_quote_fetch = None
 _last_alerts_fetch = None
 _last_news_fetch = None
 
@@ -1418,10 +1431,12 @@ _last_news_fetch = None
 def feeds_invalidate():
     """Force the feeds to refetch at the next cycle (after a Save)."""
     global _last_metar_fetch, _last_stocks_fetch, _last_joke_fetch
+    global _last_quote_fetch
     global _last_alerts_fetch, _last_news_fetch
     _last_metar_fetch = None
     _last_stocks_fetch = None
     _last_joke_fetch = None
+    _last_quote_fetch = None
     _last_alerts_fetch = None
     _last_news_fetch = None
 
@@ -1448,6 +1463,7 @@ def data_service():
     gauge: Phase 2 fetched happily; the Phase 3 app showed 31,872
     and starved."""
     global _last_metar_fetch, _last_stocks_fetch, _last_joke_fetch
+    global _last_quote_fetch
     global _last_alerts_fetch, _last_news_fetch
     if _ip is None:
         return
@@ -1460,11 +1476,14 @@ def data_service():
         _last_stocks_fetch, STOCKS_REFRESH_MS, now)
     joke_due = subs.get("joke") and _due(
         _last_joke_fetch, JOKE_REFRESH_MS, now)
+    quote_due = subs.get("quote") and _due(
+        _last_quote_fetch, QUOTE_REFRESH_MS, now)
     alerts_due = subs.get("alerts") and cfg["zip_code"] and _due(
         _last_alerts_fetch, ALERTS_REFRESH_MS, now)
     news_due = subs.get("news") and _due(
         _last_news_fetch, NEWS_REFRESH_MS, now)
-    if metar_due or stocks_due or joke_due or alerts_due or news_due:
+    if metar_due or stocks_due or joke_due or quote_due \
+            or alerts_due or news_due:
         # "ONE MOMENT" latched before a download round (Nov 3, Mark
         # confirmed it works well on the classic board): a wedged
         # download never leaves the sign frozen mid-scroll with no
@@ -1489,6 +1508,12 @@ def data_service():
         ok = joke_mod.fetch()
         print("Fetch: joke done", ok)
         _last_joke_fetch = _stamp(ok, JOKE_REFRESH_MS, now)
+    if quote_due:
+        gc.collect()
+        print("Fetch: quote")
+        ok = quotes_mod.fetch()
+        print("Fetch: quote done", ok)
+        _last_quote_fetch = _stamp(ok, QUOTE_REFRESH_MS, now)
     if alerts_due:
         gc.collect()
         print("Fetch: alerts")
@@ -1566,6 +1591,9 @@ def build_segments():
     if subs.get("joke"):
         segs.append(("scroll", joke_mod.segment(),
                      SEGMENT_TITLES["joke"]))
+    if subs.get("quote"):
+        segs.append(("scroll", quotes_mod.segment(),
+                     SEGMENT_TITLES["quote"]))
     if subs.get("alerts"):
         text = nws_mod.segment()
         if text is not None:
@@ -1600,7 +1628,7 @@ def show_ip_splash(timeout_ms=20000):
 
 def main():
     global _wdt
-    print("Ticker app starting (S3 build v5: clock + METAR + stocks + verse + joke + alerts + news, provisioning, self-update, night mode)")
+    print("Ticker app starting (S3 build v6: clock + METAR + stocks + verse + joke + quote + alerts + news, provisioning, self-update, night mode)")
     _wdt = WDT(timeout=60000)
     print("Watchdog armed (60 s)")
     try:

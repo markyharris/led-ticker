@@ -12,6 +12,8 @@ MicroPython: 16 MAX7219 modules (128×8 pixels) showing, in rotation,
   no network needed
 - **Dad joke** — one per cycle from icanhazdadjoke.com, with
   bundled fallbacks when offline
+- **Inspirational quote** — from zenquotes.io (dummyjson.com
+  behind it), last-good cached, bundled public-domain fallbacks
 - **Weather alerts** — NWS watches/warnings for a ZIP code, with
   the affected areas; appears only while alerts are active
 - **News headlines** — top stories from a wire RSS feed (NPR by
@@ -104,6 +106,7 @@ Wi-Fi password belong to the board.
 | `stocks.py` | Yahoo chart API quotes |
 | `verse.py` | Bundled KJV New Testament verses |
 | `joke.py` | icanhazdadjoke.com client with fallbacks |
+| `quotes.py` | zenquotes.io / dummyjson.com quotes with fallbacks |
 | `nws.py` | NWS alerts via NOAA's ArcGIS live feed (the api.weather.gov DNS chain defeats the ESP32 resolver; this host resolves normally) |
 | `news.py` | RSS headline parser/fetcher |
 | `zipgeo.py` | ZIP → coordinates via api.zippopotam.us |
