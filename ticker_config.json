@@ -1,0 +1,30 @@
+{
+ "wifi_ssid": "",
+ "wifi_pass": "",
+ "tz_offset_hours": -7,
+ "brightness": 6,
+ "scroll_ms": 40,
+ "wipe": "random",
+ "wow_wipe": true,
+ "metar_ids": [
+  "KFLG"
+ ],
+ "metar_mode": "translated",
+ "stocks": [
+  "AAPL",
+  "GOOGL"
+ ],
+ "zip_code": "86001",
+ "news_feed": "npr",
+ "news_custom_url": "",
+ "subjects": {
+  "clock_normal": true,
+  "clock_text": true,
+  "metar": true,
+  "stocks": true,
+  "verse": true,
+  "joke": true,
+  "alerts": true,
+  "news": true
+ }
+}
