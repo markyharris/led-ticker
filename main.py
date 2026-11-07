@@ -22,6 +22,16 @@
 # it, last-good cached, bundled public-domain fallbacks offline.
 # Mark's one design note: quotes come from an API, not from him.
 #
+# v6.1 (Nov 6 2026): updater hardening. v6's first delivery
+# stranded the sign: the older updater's built-in file list
+# predated quotes.py, so Update now installed the new main.py
+# without the new module and the board stopped at the import
+# (recovered by uploading quotes.py once by hand). The updater
+# now reads the repo's update_files.txt manifest fresh on every
+# check/apply and manages the files it names (plain .py names
+# only - the config can never be pulled in), falling back to the
+# built-in list when the manifest can't be fetched.
+#
 # What v2 adds (Mark's tweaks, Nov 6 2026):
 # - Title cards: when a clock subject is enabled, every content
 #   segment is preceded by a static card "3:28 PM - Joke:" naming
@@ -1114,6 +1124,13 @@ GITHUB_REPO = "markyharris/led-ticker"
 UPDATE_FILES = ("main.py", "max7219.py", "textclock.py", "metar.py",
                 "stocks.py", "verse.py", "joke.py", "quotes.py",
                 "nws.py", "news.py", "zipgeo.py")
+# The authoritative file list lives in the repo as update_files.txt
+# and is read fresh by _fetch_update_manifest(); UPDATE_FILES above
+# is only the fallback for when that read fails (v6.1, after the
+# Nov 6 2026 stranding taught us a frozen list goes stale the day
+# a release adds a module).
+UPDATE_MANIFEST_URL = ("https://raw.githubusercontent.com/%s/main/"
+                       "update_files.txt" % GITHUB_REPO)
 UPDATE_CHECK_MS = 3600 * 1000
 UPDATE_TIMEOUT_S = 20
 MAX_API_BYTES = 32768
@@ -1314,10 +1331,40 @@ def _fetch_repo_listing():
     return None
 
 
+def _fetch_update_manifest():
+    """The repo's update_files.txt: the board files the updater
+    manages, one per line, read fresh on every check/apply - so a
+    release that adds a module lists it there and even an old
+    updater learns about it. Only plain .py names are accepted, so
+    ticker_config.json can never be pulled in. None on any failure
+    (the caller falls back to the built-in UPDATE_FILES)."""
+    try:
+        data = _https_get_url(UPDATE_MANIFEST_URL, MAX_API_BYTES)
+    except Exception:
+        data = None
+    if not data:
+        return None
+    try:
+        text = data.decode() if isinstance(data, bytes) else data
+    except Exception:
+        return None
+    names = []
+    for line in text.split("\n"):
+        name = line.strip()
+        if name.endswith(".py") and "/" not in name \
+                and name not in names:
+            names.append(name)
+    return names or None
+
+
+def _update_file_list():
+    return _fetch_update_manifest() or list(UPDATE_FILES)
+
+
 def _changed_files(listing):
     """(name, info) pairs whose repo SHA differs from the board's."""
     plan = []
-    for name in UPDATE_FILES:
+    for name in _update_file_list():
         info = listing.get(name)
         if info and _file_blob_sha(name) != info["sha"]:
             plan.append((name, info))
@@ -1628,7 +1675,7 @@ def show_ip_splash(timeout_ms=20000):
 
 def main():
     global _wdt
-    print("Ticker app starting (S3 build v6: clock + METAR + stocks + verse + joke + quote + alerts + news, provisioning, self-update, night mode)")
+    print("Ticker app starting (S3 build v6.1: clock + METAR + stocks + verse + joke + quote + alerts + news, provisioning, self-update, night mode)")
     _wdt = WDT(timeout=60000)
     print("Watchdog armed (60 s)")
     try:

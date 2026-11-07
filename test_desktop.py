@@ -638,6 +638,55 @@ check("quotes: fallback segment has an author",
 check("quotes: quotes.py rides the self-update",
       "quotes.py" in ns["UPDATE_FILES"])
 
+# 14. manifest-driven updater (v6.1): the file list comes from the
+# repo's update_files.txt, so a module an old updater has never
+# heard of still gets installed - the Nov 6 stranding fix. When
+# the manifest can't be fetched, the built-in list is the fallback.
+MANIFEST = (b"main.py\nquotes.py\nnewmod.py\n\n"
+            b"# a comment line\nticker_config.json\n")
+LISTING2 = _json.dumps([
+    {"name": "newmod.py", "type": "file",
+     "sha": _git_blob_sha(b"# brand new module\n"),
+     "download_url": "https://dl/newmod.py"},
+    {"name": "ticker_config.json", "type": "file",
+     "sha": _git_blob_sha(b"{}"),
+     "download_url": "https://dl/ticker_config.json"},
+]).encode()
+
+
+def _fake_https_manifest(url, max_bytes, depth=0):
+    if "update_files.txt" in url:
+        return MANIFEST
+    if "api.github.com" in url:
+        return LISTING2
+    return None
+
+
+ns["_https_get_url"] = _fake_https_manifest
+check("upd2: manifest parsed (.py only, no config)",
+      ns["_fetch_update_manifest"]()
+      == ["main.py", "quotes.py", "newmod.py"],
+      ns["_fetch_update_manifest"]())
+plan2 = ns["_changed_files"](ns["_parse_listing"](LISTING2))
+check("upd2: unknown-to-builtin module is planned",
+      [n for n, _i in plan2] == ["newmod.py"], plan2)
+
+
+def _fake_https_no_manifest(url, max_bytes, depth=0):
+    if "update_files.txt" in url:
+        return None
+    if "api.github.com" in url:
+        return LISTING2
+    return None
+
+
+ns["_https_get_url"] = _fake_https_no_manifest
+check("upd2: manifest failure falls back to built-in list",
+      ns["_update_file_list"]() == list(ns["UPDATE_FILES"]))
+plan3 = ns["_changed_files"](ns["_parse_listing"](LISTING2))
+check("upd2: fallback plan ignores newmod.py",
+      plan3 == [], plan3)
+
 print()
 if failures:
     print("FAILURES:", failures)
