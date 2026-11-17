@@ -32,6 +32,19 @@
 # only - the config can never be pulled in), falling back to the
 # built-in list when the manifest can't be fetched.
 #
+# v7 (Nov 16 2026): the boot IP splash becomes the admin-address
+# scroll, per Mark's standing rule (Nov 16 2026) that every device
+# must tell its owner its admin address once it connects. Once at
+# boot, after the STA join, the sign scrolls "ADMIN <ip>" - the
+# address read from ifconfig at that moment - through the matrix
+# TWICE at the head of the rotation, then drops into the normal
+# rotation and never repeats until the next boot (mid-run
+# reconnects in network_service never re-show it). This replaces
+# the v2-era splash (the bare address held static for 5 s, no
+# label). Night mode is honoured like any segment: the passes run
+# at the night-scaled intensity, and at night_brightness 0 they
+# stay dark, per the owner's own setting.
+#
 # What v2 adds (Mark's tweaks, Nov 6 2026):
 # - Title cards: when a clock subject is enabled, every content
 #   segment is preceded by a static card "3:28 PM - Joke:" naming
@@ -1657,25 +1670,45 @@ def build_segments():
     return segs
 
 
-def show_ip_splash(timeout_ms=20000):
-    """Startup IP splash (Phase 2 behaviour, restored): once at boot,
-    wait for WiFi (up to timeout_ms), then show just the address -
-    no "IP" label, per Mark's Nov 1 note - for 5 s. Never part of
-    the rotation. Skips quietly if WiFi never connects."""
+def show_admin_splash(timeout_ms=20000):
+    """Boot segment (v7): once at boot, wait for the STA join (up
+    to timeout_ms), then scroll "ADMIN <ip>" - the address read
+    from ifconfig at that moment - through the sign TWICE, at the
+    head of the rotation, so the owner can read and copy the admin
+    page's address (Mark's Nov 16 2026 standing rule: a device
+    tells its owner its admin address once it connects). Runs only
+    from main(), before the loop: power-ups, the reboot after a
+    portal setup, and the self-updater's reboot all pass through
+    here, while network_service's mid-run reconnects never do, so
+    it can never repeat until the next boot. Night mode is
+    honoured like any segment: the passes run at
+    effective_intensity(), and at night_brightness 0 (night_off)
+    they stay dark, per the owner's own setting. Skips quietly if
+    WiFi never connects."""
     t0 = time.ticks_ms()
     while not wlan.isconnected():
         service()
         if time.ticks_diff(time.ticks_ms(), t0) >= timeout_ms:
             return
         time.sleep_ms(200)
-    if _ip:
-        print("Splash: showing IP", _ip)
-        static_text(_ip, 5000)
+    if _ip is None:
+        service()   # network_service(): _ip set, first NTP attempt
+    ip = wlan.ifconfig()[0]
+    if night_off():
+        print("Admin splash: night off - staying dark; "
+              "admin at http://" + ip)
+        return
+    eff = effective_intensity()
+    if eff != disp.intensity:
+        disp.set_intensity(eff)
+    print("Admin splash: scrolling ADMIN", ip, "twice")
+    scroll_text("ADMIN " + ip)
+    scroll_text("ADMIN " + ip)
 
 
 def main():
     global _wdt
-    print("Ticker app starting (S3 build v6.1: clock + METAR + stocks + verse + joke + quote + alerts + news, provisioning, self-update, night mode)")
+    print("Ticker app starting (S3 build v7: clock + METAR + stocks + verse + joke + quote + alerts + news, provisioning, self-update, night mode, admin-address boot scroll)")
     _wdt = WDT(timeout=60000)
     print("Watchdog armed (60 s)")
     try:
@@ -1683,7 +1716,7 @@ def main():
             _prov_run()   # returns only if setup mode itself fails
     except Exception as e:
         print("Provisioning unavailable:", e)
-    show_ip_splash()
+    show_admin_splash()
     try:
         while True:
             data_service()

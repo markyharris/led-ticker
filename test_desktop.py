@@ -687,6 +687,35 @@ plan3 = ns["_changed_files"](ns["_parse_listing"](LISTING2))
 check("upd2: fallback plan ignores newmod.py",
       plan3 == [], plan3)
 
+# 15. admin-address boot scroll (v7): after the boot join the sign
+# scrolls "ADMIN <ip>" exactly twice (the stub ifconfig address),
+# at the head of the rotation and never as a rotation segment; a
+# mid-run reconnect recovers the link but re-shows nothing; at
+# night_brightness 0 inside the window the passes stay dark.
+boot_scrolls = []
+ns["scroll_text"] = lambda t: boot_scrolls.append(t)
+ns["service"] = lambda: None
+ns["show_admin_splash"]()
+check("boot: ADMIN address scrolled exactly twice",
+      boot_scrolls == ["ADMIN 192.168.1.42"] * 2, boot_scrolls)
+check("boot: ADMIN is not a rotation segment",
+      all("ADMIN" not in s[1] for s in real_build()))
+_WLAN.connected = False
+ns["network_service"]()
+check("boot: drop clears the ip", ns["_ip"] is None)
+_WLAN.connected = True
+ns["network_service"]()
+check("boot: reconnect restores ip, no re-scroll",
+      ns["_ip"] == "192.168.1.42" and len(boot_scrolls) == 2,
+      boot_scrolls)
+ns["local_hms"] = lambda: (23, 0, 0)
+cfg["night_brightness"] = 0
+ns["show_admin_splash"]()
+check("boot: night 0% -> passes stay dark",
+      len(boot_scrolls) == 2, boot_scrolls)
+cfg["night_brightness"] = 25
+ns["local_hms"] = _real_hms
+
 print()
 if failures:
     print("FAILURES:", failures)

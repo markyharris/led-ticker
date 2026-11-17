@@ -62,8 +62,11 @@ change settings.
    `news.py`, `zipgeo.py`, `ticker_config.json`.
 3. Power up. With the shipped template config (blank Wi-Fi), the
    sign boots into **setup mode** — see Rehoming below. On a board
-   already configured, it joins its network, shows its IP address
-   once, and starts the rotation. The admin page is at
+   already configured, it joins its network, scrolls its admin
+   address (`ADMIN <ip>`) twice at the head of the rotation — at
+   night-mode brightness inside the night window, and dark at a
+   0% night setting — then starts the rotation and does not show
+   it again until the next boot. The admin page is at
    `http://<that-ip>/`.
 
 ## Rehoming (Wi-Fi provisioning)
