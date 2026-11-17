@@ -30,7 +30,11 @@ app, admin page, and fetches keep running.
 
 Everything is set from the board's own web admin page — subjects,
 airports, symbols, ZIP, brightness, scroll speed — no reflashing to
-change settings.
+change settings. The page follows the house admin style: colour-tinted
+sections, sliders with live readouts for brightness, scroll speed and
+night brightness, the matrix-'T' icon in the tab and beside the title,
+and every action (Save, Update now) landing back on the admin page
+itself.
 
 ## Hardware
 

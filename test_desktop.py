@@ -716,6 +716,121 @@ check("boot: night 0% -> passes stay dark",
 cfg["night_brightness"] = 25
 ns["local_hms"] = _real_hms
 
+# 16. admin UX pass (v8), mirroring painter-clock test_admin.py:
+# sliders with live readouts, the icon as favicon + header,
+# colour sections, and every action landing back on the admin
+# page. Handlers are driven through a fake connection.
+page = ns["_admin_page"]()
+check("admin8: three sliders", page.count('type="range"') == 3,
+      page.count('type="range"'))
+for nm, lo, hi in (("brightness", "0", "15"),
+                   ("scroll_ms", "1", "120"),
+                   ("night_brightness", "0", "100")):
+    check("admin8: slider %s range + value + readout" % nm,
+          ('name="%s"' % nm) in page and ('min="%s"' % lo) in page
+          and ('max="%s"' % hi) in page
+          and ('value="%s"' % cfg[nm]) in page
+          and ('id="v_%s"' % nm) in page
+          and ("getElementById('v_%s')" % nm) in page
+          and "oninput=" in page)
+check("admin8: no number boxes left for slider keys",
+      'type="number" name="brightness"' not in page
+      and 'type="number" name="scroll_ms"' not in page
+      and 'type="number" name="night_brightness"' not in page)
+check("admin8: favicon is the data-URI icon",
+      '<link rel="icon" type="image/svg+xml" '
+      'href="data:image/svg+xml;utf8,' in page and "%3Csvg" in page)
+check("admin8: icon URI derives from the one SVG literal",
+      ns["ICON_URI"].startswith("data:image/svg+xml;utf8,")
+      and ns["ICON_SVG"].startswith("<svg")
+      and "%23ff2d16" in ns["ICON_URI"])
+h2 = page[page.index("<h2>"):page.index("</h2>")]
+check("admin8: icon inline beside the title",
+      "<svg" in h2 and "LED Ticker Admin" in h2
+      and "<img" not in h2)
+sec_order = []
+for cls, legend in (("sec-status", "Status"),
+                    ("sec-subjects", "Subjects"),
+                    ("sec-weather", "Weather"),
+                    ("sec-markets", "Stocks &amp; news"),
+                    ("sec-display", "Display"),
+                    ("sec-night", "Night mode"),
+                    ("sec-system", "System"),
+                    ("sec-update", "Update")):
+    check("admin8: section %s" % legend,
+          ('class="%s"' % cls) in page
+          and ("<legend>%s</legend>" % legend) in page)
+    sec_order.append(page.index('class="%s"' % cls))
+check("admin8: sections in order", sec_order == sorted(sec_order))
+check("admin8: no note on a plain GET", 'class="msg"' not in page)
+check("admin8: every old control survived",
+      all(frag in page for frag in (
+          'name="sub_clock_normal"', 'name="sub_news"',
+          'name="metar_0"', 'name="metar_mode"', 'name="stock_0"',
+          'name="zip_code"', 'name="news_feed"',
+          'name="news_custom_url"', 'name="wipe"',
+          'name="wow_wipe"', 'name="night_mode"',
+          'name="night_start"', 'name="night_end"',
+          'name="wifi_ssid"', 'name="wifi_pass"',
+          'name="tz_offset_hours"', "LED-Ticker-Setup",
+          "Save")))
+
+
+class _FakeConn:
+    def __init__(self, req):
+        self._req = req
+        self.sent = b""
+
+    def settimeout(self, t):
+        pass
+
+    def recv(self, n):
+        data, self._req = self._req[:n], self._req[n:]
+        return data
+
+    def send(self, data):
+        if isinstance(data, str):
+            data = data.encode()
+        self.sent += data
+        return len(data)
+
+    def close(self):
+        pass
+
+
+def _request(method, path, body=""):
+    req = ("%s %s HTTP/1.0\r\nContent-Length: %d\r\n\r\n%s"
+           % (method, path, len(body), body)).encode()
+    conn = _FakeConn(req)
+    ns["_handle_client"](conn)
+    return conn.sent.decode()
+
+
+saved_body = _request("POST", "/save",
+                      "brightness=12&scroll_ms=30"
+                      "&night_brightness=40&tz_offset_hours=-7")
+check("admin8: Save answers with the admin page + note",
+      "<title>LED Ticker Admin</title>" in saved_body
+      and 'class="msg"' in saved_body
+      and "Saved. Changes apply on the next cycle." in saved_body
+      and 'value="12"' in saved_body)
+check("admin8: Save applied the slider values",
+      cfg["brightness"] == 12 and cfg["scroll_ms"] == 30
+      and cfg["night_brightness"] == 40,
+      (cfg["brightness"], cfg["scroll_ms"], cfg["night_brightness"]))
+upd_body = _request("POST", "/update")
+check("admin8: Update answers with the refresh page",
+      'http-equiv="refresh"' in upd_body and "url=/" in upd_body
+      and "Updating and rebooting." in upd_body
+      and 'href="/"' in upd_body and "<fieldset" not in upd_body)
+get_body = _request("GET", "/")
+check("admin8: GET answers with the admin page, no note",
+      "<title>LED Ticker Admin</title>" in get_body
+      and 'class="msg"' not in get_body)
+fav_body = _request("GET", "/favicon.svg")
+check("admin8: /favicon.svg still serves the icon literal",
+      ns["ICON_SVG"] in fav_body)
+
 print()
 if failures:
     print("FAILURES:", failures)

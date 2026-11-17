@@ -45,6 +45,27 @@
 # at the night-scaled intensity, and at night_brightness 0 they
 # stay dark, per the owner's own setting.
 #
+# v8 (Nov 16 2026): the admin UX pass, per Mark's standing
+# admin-page design rule (painter clock v24 is the reference).
+# Presentation and response shape only - every config key,
+# handler semantic and display behaviour is exactly as v7.
+# The page is organised into colour-tinted sections (fieldset +
+# legend, the Visual Logbook admin's manner): Status, Subjects,
+# Weather, Stocks & news, Display, Night mode, System, Update.
+# Brightness (0-15), scroll speed (1-120 ms) and night
+# brightness (0-100%) are real range sliders with live numeric
+# readouts; free-form values (ZIP, times, URL, SSID) keep their
+# text inputs, and the UTC offset keeps its number box (a
+# discrete offset a slider would invite drifting off). The
+# 8x8-matrix 'T' icon is one SVG literal serving both spots -
+# inline beside the page title, and as the tab favicon via a
+# data URI derived from the same literal (the /favicon.svg
+# route still serves it too). Every action lands back on the
+# admin page itself: Save answers with the page plus a note,
+# and Update now answers with a small auto-refreshing page
+# that reloads the admin page once the sign is back, instead
+# of the old dead-end "Updating..." landing.
+#
 # What v2 adds (Mark's tweaks, Nov 6 2026):
 # - Title cards: when a clock subject is enabled, every content
 #   segment is preceded by a static card "3:28 PM - Joke:" naming
@@ -856,6 +877,35 @@ def _parse_form(body):
     return params
 
 
+def _slider(name, label, lo, hi, value):
+    """One range slider with a live numeric readout: dragging
+    updates the number beside it (the oninput), and the field
+    name / range are the config key's own, unchanged (v8)."""
+    return ('<p>%s <input type="range" name="%s" min="%d" '
+            'max="%d" value="%s" oninput="document.'
+            'getElementById(\'v_%s\').textContent=this.value"> '
+            '<span class="val" id="v_%s">%s</span></p>'
+            % (label, name, lo, hi, value, name, name, value))
+
+
+def _refresh_page(verb, delay):
+    """The rebooting action's answer (v8): a minimal page that
+    sends the browser back to the admin page once the sign is
+    up again (meta refresh), with a manual link if it stalls.
+    The flow still ends on the admin page, never a dead end."""
+    return """<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="%d;url=/">
+<title>LED Ticker Admin</title>
+<link rel="icon" type="image/svg+xml" href="%s"></head>
+<body style="font-family:sans-serif">
+<p><b>%s</b></p>
+<p>The sign is rebooting - this page will reload the admin
+page by itself in about %d seconds. If it doesn't,
+<a href="/">tap here</a>.</p>
+</body></html>""" % (delay, ICON_URI, verb, delay)
+
+
 def _admin_page(msg=""):
     subs = cfg["subjects"]
     rows = ""
@@ -903,7 +953,8 @@ def _admin_page(msg=""):
             'Your settings are not touched.</p></form>'
             % UPDATE_STATE["files"])
     else:
-        update_html = ""
+        update_html = ("<p>Code is up to date with GitHub "
+                       "(checked hourly, and once after boot).</p>")
     h, m, _s = local_hms()
     status = ("IP: %s &nbsp; Time: %s (%s) &nbsp; NTP: %s &nbsp; "
               "METAR: %s &nbsp; Stocks: %s &nbsp; Joke: %s &nbsp; "
@@ -918,59 +969,100 @@ def _admin_page(msg=""):
         "ok" if quotes_mod.last_fetch_ok() else "waiting",
         "ok" if nws_mod.last_fetch_ok() else "waiting",
         "ok" if news_mod.last_fetch_ok() else "waiting")
+    msg_html = '<p class="msg">%s</p>' % msg if msg else ""
     return """<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LED Ticker Admin</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg"></head>
-<body style="font-family:sans-serif;max-width:560px;margin:16px auto;padding:0 12px">
-<h2><img src="/favicon.svg" width="34" height="34" alt="" style="vertical-align:-9px;margin-right:8px">LED Ticker Admin</h2>
-<p style="color:#444">%s</p>
-<p style="color:green">%s</p>
+<link rel="icon" type="image/svg+xml" href="%s">
+<style>
+body{font-family:sans-serif;max-width:560px;margin:16px auto;padding:0 12px}
+fieldset{margin:12px 0;border:1px solid #bbb;border-radius:6px}
+legend{font-weight:bold;padding:0 4px}
+input{margin:2px}
+input[type=range]{width:200px;vertical-align:middle}
+.val{display:inline-block;min-width:2.2em;font-weight:bold}
+.msg{background:#efe;border:1px solid #9c9;padding:6px}
+.sec-status{background:#e9f1fd}
+.sec-subjects{background:#e7f6ec}
+.sec-weather{background:#e2f5f7}
+.sec-markets{background:#fff6d9}
+.sec-display{background:#e9e4f5}
+.sec-night{background:#f3e5f5}
+.sec-system{background:#fdeaea}
+.sec-update{background:#fdeee2}
+h2 svg{height:34px;width:34px;vertical-align:-9px;margin-right:8px}
+</style></head>
+<body>
+<h2>%sLED Ticker Admin</h2>
 %s
+<fieldset class="sec-status"><legend>Status</legend>
+<p style="color:#444">%s</p></fieldset>
 <form method="post" action="/save">
-<h3>Subjects to display</h3>
+<fieldset class="sec-subjects"><legend>Subjects</legend>
 %s
-<h3>METAR</h3>
-<p style="margin:4px 0">Airport IDs (ICAO, up to 12):<br>%s</p>
+</fieldset>
+<fieldset class="sec-weather"><legend>Weather</legend>
+<p style="margin:4px 0">METAR airport IDs (ICAO, up to 12):<br>%s</p>
 <label>Style <select name="metar_mode">%s</select></label>
-<h3>Stocks</h3>
-<p style="margin:4px 0">Symbols (up to 12):<br>%s</p>
-<h3>Weather alerts</h3>
-<label>ZIP code (alerts are for this area) <input type="text" name="zip_code" value="%s" size="10" maxlength="10"></label>
-<h3>News</h3>
-<label>Feed <select name="news_feed">%s</select></label><br><br>
+<p><label>ZIP code (weather alerts are for this area) <input type="text" name="zip_code" value="%s" size="10" maxlength="10"></label></p>
+</fieldset>
+<fieldset class="sec-markets"><legend>Stocks &amp; news</legend>
+<p style="margin:4px 0">Stock symbols (up to 12):<br>%s</p>
+<label>News feed <select name="news_feed">%s</select></label><br><br>
 <label>Custom feed URL <input type="text" name="news_custom_url" value="%s" size="40"></label>
-<h3>Display</h3>
-<label>Brightness (0-15) <input type="number" name="brightness" min="0" max="15" value="%d"></label><br><br>
-<label>Scroll speed - ms per step (lower = faster) <input type="number" name="scroll_ms" min="1" max="120" value="%d"></label><br><br>
+</fieldset>
+<fieldset class="sec-display"><legend>Display</legend>
+%s
+%s
 <label>Wipe between subjects <select name="wipe">%s</select></label><br><br>
 <label style="display:block"><input type="checkbox" name="wow_wipe"%s> Wow wipe after each segment (replaces the wipe above while on)</label>
-<h3>Night mode</h3>
+</fieldset>
+<fieldset class="sec-night"><legend>Night mode</legend>
 <label style="display:block"><input type="checkbox" name="night_mode"%s> Night mode - dim during the window below</label><br>
 <label>From <input type="text" name="night_start" value="%s" size="5" maxlength="5"></label>
 <label> to <input type="text" name="night_end" value="%s" size="5" maxlength="5"></label>
-<label> at <input type="number" name="night_brightness" min="0" max="100" value="%d"> %% of normal brightness (0 = sign dark)</label>
-<h3>WiFi &amp; time</h3>
-<label>SSID <input type="text" name="wifi_ssid" value="%s"></label><br><br>
+%s
+</fieldset>
+<fieldset class="sec-system"><legend>System</legend>
+<label>WiFi SSID <input type="text" name="wifi_ssid" value="%s"></label><br><br>
 <label>Password <input type="password" name="wifi_pass" value="%s"></label><br><br>
 <label>UTC offset, hours <input type="number" name="tz_offset_hours" min="-12" max="14" value="%d"></label>
 <p style="color:#666">Moving the sign to a new network? Power it on and hold the BOOT button (starting just after power-up) for about 3 seconds: it forgets this network and offers its own LED-Ticker-Setup page for the new one.</p>
+</fieldset>
 <p><button type="submit" style="font-size:1.05em;padding:6px 18px">Save</button></p>
 <p style="color:#666">Changes apply on the next display cycle.</p>
-</form></body></html>""" % (
-        status, msg, update_html, rows, metar_fields, mode_opts,
-        stock_fields,
-        cfg["zip_code"], feed_opts, cfg["news_custom_url"],
-        int(cfg["brightness"]), int(cfg["scroll_ms"]), wipe_opts,
-        wow_checked,
+</form>
+<fieldset class="sec-update"><legend>Update</legend>
+%s
+</fieldset>
+</body></html>""" % (
+        ICON_URI, ICON_SVG, msg_html, status, rows,
+        metar_fields, mode_opts, cfg["zip_code"],
+        stock_fields, feed_opts, cfg["news_custom_url"],
+        _slider("brightness", "Brightness (0-15):", 0, 15,
+                int(cfg["brightness"])),
+        _slider("scroll_ms",
+                "Scroll speed - ms per step (lower = faster):",
+                1, 120, int(cfg["scroll_ms"])),
+        wipe_opts, wow_checked,
         night_checked, cfg["night_start"], cfg["night_end"],
-        int(cfg["night_brightness"]),
-        cfg["wifi_ssid"], cfg["wifi_pass"], int(cfg["tz_offset_hours"]))
+        _slider("night_brightness",
+                "Night brightness - % of normal (0 = sign dark):",
+                0, 100, int(cfg["night_brightness"])),
+        cfg["wifi_ssid"], cfg["wifi_pass"],
+        int(cfg["tz_offset_hours"]), update_html)
 
 
-# 8x8 LED matrix with a lit 'T' - served at /favicon.svg, used as the
-# browser tab icon and next to the admin page title.
+# 8x8 LED matrix with a lit 'T' - one SVG literal serving both
+# icon spots on the admin page (v8, the painter-clock v24
+# pattern): inline beside the page title, and as the browser
+# tab's favicon via ICON_URI, a data URI derived from this same
+# literal - so the pair can never drift. The /favicon.svg route
+# still serves the literal as well.
 ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" rx="12" fill="#dcdcdc"/><g fill="#8f8380"><circle cx="5" cy="5" r="3.4"/><circle cx="75" cy="5" r="3.4"/><circle cx="5" cy="15" r="3.4"/><circle cx="15" cy="15" r="3.4"/><circle cx="25" cy="15" r="3.4"/><circle cx="55" cy="15" r="3.4"/><circle cx="65" cy="15" r="3.4"/><circle cx="75" cy="15" r="3.4"/><circle cx="5" cy="25" r="3.4"/><circle cx="15" cy="25" r="3.4"/><circle cx="25" cy="25" r="3.4"/><circle cx="55" cy="25" r="3.4"/><circle cx="65" cy="25" r="3.4"/><circle cx="75" cy="25" r="3.4"/><circle cx="5" cy="35" r="3.4"/><circle cx="15" cy="35" r="3.4"/><circle cx="25" cy="35" r="3.4"/><circle cx="55" cy="35" r="3.4"/><circle cx="65" cy="35" r="3.4"/><circle cx="75" cy="35" r="3.4"/><circle cx="5" cy="45" r="3.4"/><circle cx="15" cy="45" r="3.4"/><circle cx="25" cy="45" r="3.4"/><circle cx="55" cy="45" r="3.4"/><circle cx="65" cy="45" r="3.4"/><circle cx="75" cy="45" r="3.4"/><circle cx="5" cy="55" r="3.4"/><circle cx="15" cy="55" r="3.4"/><circle cx="25" cy="55" r="3.4"/><circle cx="55" cy="55" r="3.4"/><circle cx="65" cy="55" r="3.4"/><circle cx="75" cy="55" r="3.4"/><circle cx="5" cy="65" r="3.4"/><circle cx="15" cy="65" r="3.4"/><circle cx="25" cy="65" r="3.4"/><circle cx="55" cy="65" r="3.4"/><circle cx="65" cy="65" r="3.4"/><circle cx="75" cy="65" r="3.4"/><circle cx="5" cy="75" r="3.4"/><circle cx="15" cy="75" r="3.4"/><circle cx="25" cy="75" r="3.4"/><circle cx="35" cy="75" r="3.4"/><circle cx="45" cy="75" r="3.4"/><circle cx="55" cy="75" r="3.4"/><circle cx="65" cy="75" r="3.4"/><circle cx="75" cy="75" r="3.4"/></g><g fill="#ff2d16"><circle cx="15" cy="5" r="3.4"/><circle cx="25" cy="5" r="3.4"/><circle cx="35" cy="5" r="3.4"/><circle cx="45" cy="5" r="3.4"/><circle cx="55" cy="5" r="3.4"/><circle cx="65" cy="5" r="3.4"/><circle cx="35" cy="15" r="3.4"/><circle cx="45" cy="15" r="3.4"/><circle cx="35" cy="25" r="3.4"/><circle cx="45" cy="25" r="3.4"/><circle cx="35" cy="35" r="3.4"/><circle cx="45" cy="35" r="3.4"/><circle cx="35" cy="45" r="3.4"/><circle cx="45" cy="45" r="3.4"/><circle cx="35" cy="55" r="3.4"/><circle cx="45" cy="55" r="3.4"/><circle cx="35" cy="65" r="3.4"/><circle cx="45" cy="65" r="3.4"/></g></svg>'
+ICON_URI = ("data:image/svg+xml;utf8,"
+            + ICON_SVG.replace("#", "%23").replace("<", "%3C")
+            .replace(">", "%3E").replace('"', "%22"))
 
 
 def _handle_client(conn):
@@ -1079,14 +1171,7 @@ def _handle_client(conn):
                       + _admin_page("Saved. Changes apply on the next cycle."))
         elif method == "POST" and path == "/update":
             conn.send("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"
-                      "<!DOCTYPE html><html><body style=\"font-family:"
-                      "sans-serif\"><h2>Updating...</h2><p>Downloading "
-                      "the new code from GitHub, verifying it, and "
-                      "rebooting. The sign restarts on the new code in "
-                      "a few seconds; reload the admin page shortly. "
-                      "If the update fails, the reason shows on the "
-                      "admin page and the current code keeps "
-                      "running.</p></body></html>")
+                      + _refresh_page("Updating and rebooting.", 60))
             _apply_update()
         elif method == "GET" and path in ("/", "/index.html"):
             conn.send("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"
