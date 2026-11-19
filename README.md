@@ -36,6 +36,11 @@ night brightness, the matrix-'T' icon in the tab and beside the title,
 and every action (Save, Update now) landing back on the admin page
 itself.
 
+**Building one?** The full manual — hardware, wiring, flashing,
+first boot, the admin page section by section, night mode,
+rehoming, updates and troubleshooting — is
+[HOWTO.md](HOWTO.md).
+
 ## Hardware
 
 - ESP32-S3-DevKitC-1 (N8R8 used here; firmware
